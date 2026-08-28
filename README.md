@@ -1,103 +1,649 @@
-# Long-Term Memory for AI Agents
+# Self-Learning AI — Mem0 + Qdrant
 
-Example code for giving AI agents persistent, long-term memory using the
-[mem0](https://github.com/mem0ai/mem0) Python library.
+A simple AI memory demo using:
 
-## Quick Start
+* **OpenAI** — generates AI responses
+* **Mem0** — extracts and manages memories from conversations
+* **Qdrant** — stores and retrieves vector memories
+* **Python** — application runtime
+* **Docker** — runs Qdrant locally
 
-1. Create a venv with Python 3.11+
-2. Install requirements: `pip install -r requirements.txt`
-3. Copy `.env.example` to `.env` and fill in your API keys
-4. Run `docker compose -f docker/docker-compose.yml up -d` before running the examples in the `oss` folder
-5. Run the example scripts
+The main example is:
 
-## How memory works here
+```text
+oss/memory_demo.py
+```
 
-Instead of stuffing an entire conversation history into the context window,
-these examples extract and store only the salient facts from a conversation,
-then retrieve the relevant ones on demand. Roughly:
+---
 
-1. **Fact extraction** — an LLM pulls structured facts (preferences, details,
-   plans, etc.) out of the conversation.
-2. **Memory management** — new facts are compared against what's already
-   stored, and the system decides to add, update, or delete memories rather
-   than duplicating them.
-3. **Storage** — memories are kept in a vector store for semantic search,
-   with an optional graph store for relational queries and a history log for
-   auditing changes.
+## Prerequisites
 
-## Core Components
+Before starting, make sure you have installed:
 
-### Configuration
+* Python **3.11+**
+* Docker Desktop
+* Git
+* VS Code
 
-Memory behavior is configured through a config dict covering the vector
-store, LLM, embedder, and (optionally) graph store:
+Check Python:
+
+```bash
+python3 --version
+```
+
+Check Docker:
+
+```bash
+docker --version
+```
+
+Check Docker Compose:
+
+```bash
+docker compose version
+```
+
+---
+
+# 1. Clone the repository
+
+Clone the repository and enter the project:
+
+```bash
+git clone <YOUR_REPOSITORY_URL>
+cd selflearning-ai
+```
+
+If you already have the repository, simply open the project folder in VS Code.
+
+---
+
+# 2. Create a Python virtual environment
+
+From the project root:
+
+```bash
+python3 -m venv .venv
+```
+
+Activate it.
+
+### macOS / Linux
+
+```bash
+source .venv/bin/activate
+```
+
+### Windows PowerShell
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+### Windows CMD
+
+```cmd
+.venv\Scripts\activate
+```
+
+After activation, you should see:
+
+```text
+(.venv)
+```
+
+at the beginning of your terminal prompt.
+
+---
+
+# 3. Install Python dependencies
+
+Install the project requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+If the project does not contain a `requirements.txt`, install the required packages manually:
+
+```bash
+pip install openai mem0ai python-dotenv
+```
+
+---
+
+# 4. Configure environment variables
+
+Create a `.env` file in the **project root**.
+
+The project should look like:
+
+```text
+selflearning-ai/
+├── .env
+├── .gitignore
+├── docker/
+│   └── docker-compose.yml
+├── oss/
+│   ├── config.py
+│   ├── memory_demo.py
+│   └── support_agent.py
+└── ...
+```
+
+If the repository provides `.env.example`, copy it:
+
+```bash
+cp .env.example .env
+```
+
+Then open it:
+
+```bash
+code .env
+```
+
+Add your API keys:
+
+```env
+MEM0_API_KEY=your_mem0_api_key
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### Important
+
+Never commit `.env` to Git.
+
+Your `.gitignore` should contain:
+
+```gitignore
+.env
+.venv/
+__pycache__/
+```
+
+Never share your API keys publicly. If a key is accidentally exposed, revoke it and create a new one.
+
+---
+
+# 5. Start Docker Desktop
+
+Make sure **Docker Desktop is running**.
+
+On macOS, open Docker Desktop and wait until Docker reports that it is running.
+
+Verify:
+
+```bash
+docker --version
+```
+
+---
+
+# 6. Start Qdrant
+
+The Docker Compose file is located at:
+
+```text
+docker/docker-compose.yml
+```
+
+You can start it from the project root with:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+You should see output similar to:
+
+```text
+✔ Image qdrant/qdrant:latest Pulled
+✔ Network docker_default Created
+✔ Container qdrant Created
+```
+
+Check that Qdrant is running:
+
+```bash
+docker compose -f docker/docker-compose.yml ps
+```
+
+The Qdrant container should show a running status.
+
+---
+
+# 7. Verify the `.env` file
+
+The demo loads `.env` from the project root.
+
+At the beginning of `oss/memory_demo.py`, use:
+
+```python
+from openai import OpenAI
+from mem0 import Memory
+from dotenv import load_dotenv
+
+load_dotenv(".env")
+```
+
+Because the command is executed from the project root:
+
+```bash
+python oss/memory_demo.py
+```
+
+`.env` correctly refers to:
+
+```text
+selflearning-ai/.env
+```
+
+If you want the code to work regardless of the directory from which the script is launched, use:
+
+```python
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+```
+
+---
+
+# 8. Mem0 configuration
+
+The current version of Mem0 expects `user_id` to be passed through `filters` when searching memories.
+
+Use:
+
+```python
+relevant_memories = memory.search(
+    query=message,
+    filters={"user_id": user_id},
+    limit=3,
+)
+```
+
+Do **not** use the older syntax:
+
+```python
+memory.search(
+    query=message,
+    user_id=user_id,
+    limit=3,
+)
+```
+
+---
+
+# 9. Configure Mem0 with Qdrant and OpenAI
+
+A working configuration is:
 
 ```python
 config = {
     "vector_store": {
         "provider": "qdrant",
-        "config": {"host": "localhost", "port": 6333},
+        "config": {
+            "host": "localhost",
+            "port": 6333,
+        },
     },
     "llm": {
         "provider": "openai",
-        "config": {"api_key": "your-api-key", "model": "gpt-4"},
-    },
-    "embedder": {
-        "provider": "openai",
-        "config": {"api_key": "your-api-key", "model": "text-embedding-3-small"},
-    },
-    "graph_store": {
-        "provider": "neo4j",
         "config": {
-            "url": "neo4j+s://your-instance",
-            "username": "neo4j",
-            "password": "password",
+            "model": "gpt-4o-mini",
+            "temperature": 1,
         },
     },
-    "history_db_path": "/path/to/history.db",
-    "version": "v1.1",
-    "custom_fact_extraction_prompt": "Optional custom prompt for fact extraction",
-    "custom_update_memory_prompt": "Optional custom prompt for update memory",
 }
 ```
 
-```python
-m = Memory.from_config(config)
-```
+The explicit `temperature: 1` is important for compatibility with models that only support the default temperature value.
 
-### Adding memories
+Initialize the clients:
 
 ```python
-memory.add(messages, user_id="user123")
+openai_client = OpenAI()
+memory = Memory.from_config(config)
 ```
 
-### Retrieving memories
+---
+
+# 10. Run the memory demo
+
+Make sure you are in the project root:
+
+```bash
+pwd
+```
+
+You should see something similar to:
+
+```text
+/.../selflearning-ai
+```
+
+Then run:
+
+```bash
+python oss/memory_demo.py
+```
+
+You should see:
+
+```text
+Chat with AI (type 'exit' to quit)
+You:
+```
+
+---
+
+# 11. Test the AI
+
+Enter:
+
+```text
+Hi my name is Dhanmeet
+```
+
+You should receive an AI response such as:
+
+```text
+Hi Dhanmeet! How can I assist you today?
+```
+
+Now provide some information that Mem0 can remember:
+
+```text
+I am learning AI and building projects with Python.
+```
+
+Then:
+
+```text
+I really enjoy working with AI agents.
+```
+
+Exit:
+
+```text
+exit
+```
+
+---
+
+# 12. Test persistent memory
+
+Start the application again:
+
+```bash
+python oss/memory_demo.py
+```
+
+Then ask:
+
+```text
+What is my name and what am I learning?
+```
+
+The application should retrieve relevant memories from Mem0/Qdrant and use them when generating the response.
+
+This demonstrates the main purpose of the project:
+
+```text
+User message
+      ↓
+Memory search
+      ↓
+Qdrant
+      ↓
+Relevant memories
+      ↓
+OpenAI
+      ↓
+AI response
+      ↓
+Mem0 extracts new memories
+      ↓
+Qdrant
+```
+
+---
+
+# 13. Optional: Install FastEmbed
+
+You may see this warning:
+
+```text
+fastembed not installed - BM25 keyword search disabled.
+```
+
+This does **not** prevent the basic demo from working.
+
+If you want the optional functionality, install:
+
+```bash
+pip install "mem0ai[extras]"
+```
+
+Then run the application again:
+
+```bash
+python oss/memory_demo.py
+```
+
+---
+
+# 14. PostHog warning
+
+You may also see:
+
+```text
+[PostHog] Multiple active PostHog clients detected...
+```
+
+This is a warning and is not responsible for the memory demo failure.
+
+For the basic demo, it can be ignored.
+
+---
+
+# Troubleshooting
+
+## `Missing credentials`
+
+If you see:
+
+```text
+OpenAIError: Missing credentials
+```
+
+make sure:
+
+1. `.env` exists in the project root.
+2. `OPENAI_API_KEY` is present.
+3. `load_dotenv(".env")` is executed before `OpenAI()`.
+4. You are running the command from the project root.
+
+You can safely check whether the key is loaded without printing it:
+
+```bash
+python -c "from dotenv import load_dotenv; import os; load_dotenv('.env'); print('OPENAI_API_KEY loaded:', bool(os.getenv('OPENAI_API_KEY')))"
+```
+
+Expected:
+
+```text
+OPENAI_API_KEY loaded: True
+```
+
+Never print your actual API key.
+
+---
+
+## `no configuration file provided`
+
+If you run:
+
+```bash
+docker compose up -d
+```
+
+and receive:
+
+```text
+no configuration file provided: not found
+```
+
+Docker Compose cannot find the Compose file in your current directory.
+
+In this project, the Compose file is:
+
+```text
+docker/docker-compose.yml
+```
+
+Therefore run:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+---
+
+## `Cannot connect to the Docker daemon`
+
+If you see:
+
+```text
+Cannot connect to the Docker daemon
+```
+
+start Docker Desktop and wait for it to finish starting.
+
+Then run:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+---
+
+## Mem0 `user_id` error
+
+If you see:
+
+```text
+Top-level entity parameters {'user_id'} are not supported in search()
+```
+
+change:
 
 ```python
-# Get by ID
-memory.get(memory_id)
-
-# Search semantically
-memory.search(query="What do you know about me?", user_id="user123")
-
-# Get all memories
-memory.get_all(user_id="user123")
+memory.search(
+    query=message,
+    user_id=user_id,
+    limit=3,
+)
 ```
 
-## Files
+to:
 
-- `01-mem0-cloud-quickstart.py` — minimal example using the hosted mem0 Cloud API
-- `02-mem0-oss-quickstart.py` — minimal example using the self-hosted (OSS) library
-- `cloud/email_example.py` — storing and searching parsed emails as memories
-- `oss/config.py` — a full self-hosted config example (vector store, LLM, embedder, graph store)
-- `oss/memory_demo.py` — a small chat loop that reads/writes memories around each turn
-- `oss/support_agent.py` — a customer-support agent that remembers past queries per user
-- `docker/docker-compose.yml` — local Qdrant vector store for the OSS examples
+```python
+memory.search(
+    query=message,
+    filters={"user_id": user_id},
+    limit=3,
+)
+```
 
-## Key Takeaways
+---
 
-1. **Don't just store raw conversations** — extract and store meaningful facts
-2. **Use embeddings** for natural-language semantic search over memories
-3. **Reconcile updates** — handle add/update/delete rather than blind appends
-4. **Track history** for debugging and auditing changes over time
+## OpenAI `temperature` error
+
+If you see:
+
+```text
+Unsupported value: 'temperature' does not support 0.1
+```
+
+configure Mem0 explicitly:
+
+```python
+"llm": {
+    "provider": "openai",
+    "config": {
+        "model": "gpt-4o-mini",
+        "temperature": 1,
+    },
+},
+```
+
+---
+
+# Stopping Qdrant
+
+When you're finished, you can stop the Qdrant container:
+
+```bash
+docker compose -f docker/docker-compose.yml down
+```
+
+This stops and removes the container/network created by Compose.
+
+To start it again later:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+---
+
+# Project Structure
+
+```text
+selflearning-ai/
+│
+├── .env
+├── .env.example
+├── .gitignore
+├── requirements.txt
+│
+├── docker/
+│   └── docker-compose.yml
+│
+└── oss/
+    ├── config.py
+    ├── memory_demo.py
+    └── support_agent.py
+```
+
+---
+
+# Quick Start
+
+Once everything is configured, the normal workflow is:
+
+### Terminal 1 — Start Qdrant
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+```
+
+### Terminal 2 — Activate Python environment
+
+```bash
+source .venv/bin/activate
+```
+
+### Run the demo
+
+```bash
+python oss/memory_demo.py
+```
+
+That's it.
+
+You now have a local AI memory system running with:
+
+**Python → OpenAI → Mem0 → Qdrant**

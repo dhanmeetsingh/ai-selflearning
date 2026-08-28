@@ -2,12 +2,22 @@ from openai import OpenAI
 from mem0 import Memory
 from dotenv import load_dotenv
 
-load_dotenv("../.env")
+load_dotenv(".env")
 
 config = {
     "vector_store": {
         "provider": "qdrant",
-        "config": {"host": "localhost", "port": 6333},
+        "config": {
+            "host": "localhost",
+            "port": 6333,
+        },
+    },
+    "llm": {
+        "provider": "openai",
+        "config": {
+            "model": "gpt-4o-mini",
+            "temperature": 1,
+        },
     },
 }
 
@@ -17,7 +27,11 @@ memory = Memory.from_config(config)
 
 def chat_with_memories(message: str, user_id: str = "default_user") -> str:
     # Retrieve relevant memories
-    relevant_memories = memory.search(query=message, user_id=user_id, limit=3)
+    relevant_memories = memory.search(
+    query=message,
+    filters={"user_id": user_id},
+    limit=3,
+)
     memories_str = "\n".join(
         f"- {entry['memory']}" for entry in relevant_memories["results"]
     )
